@@ -65,6 +65,8 @@ def test_known_events_accept_valid_object_data(event, data):
         b'{"event":"scene.resourceTransition","data":{"nextResourceId":"next"}}',
         b'{"event":"scene.resourceTransition","data":{"previousResourceId":"previous"}}',
         b'{"event":"scene.resourceTransition","data":{"previousResourceId":"","nextResourceId":"next"}}',
+        b'{"event":"scene.resourceTransition","data":{"previousResourceId":"   ","nextResourceId":"next"}}',
+        b'{"event":"scene.resourceTransition","data":{"previousResourceId":"previous","nextResourceId":"\\t"}}',
         b'{"event":"scene.resourceTransition","data":{"previousResourceId":"previous","nextResourceId":"next","message":1}}',
     ],
 )
@@ -85,6 +87,13 @@ def test_resource_transition_requires_non_empty_ids_and_string_message(payload):
 def test_sequence_and_timestamp_must_be_non_boolean_integers(payload):
     with pytest.raises(DataChannelProtocolError):
         decode_event(payload)
+
+
+def test_explicit_null_correlation_ids_are_accepted_as_absent():
+    event = decode_event(b'{"event":"custom","requestId":null,"responseId":null}')
+
+    assert event.request_id is None
+    assert event.response_id is None
 
 
 def test_unknown_event_and_transport_metadata_are_preserved():

@@ -76,7 +76,7 @@ def decode_event(
 
 def _validate_common_fields(payload: dict[str, Any]) -> None:
     for field in ("requestId", "responseId"):
-        if field in payload and not isinstance(payload[field], str):
+        if field in payload and payload[field] is not None and not isinstance(payload[field], str):
             raise DataChannelProtocolError(f"{field} must be a string")
     for field in ("seq", "timestamp"):
         if field in payload and (
@@ -97,7 +97,7 @@ def _validate_known_event(payload: dict[str, Any]) -> None:
         raise DataChannelProtocolError("session.state data.state must be a string")
     if event == SCENE_RESOURCE_TRANSITION:
         for field in ("previousResourceId", "nextResourceId"):
-            if not isinstance(event_data.get(field), str) or not event_data[field]:
+            if not isinstance(event_data.get(field), str) or not event_data[field].strip():
                 raise DataChannelProtocolError(
                     f"scene.resourceTransition {field} must be non-empty"
                 )
