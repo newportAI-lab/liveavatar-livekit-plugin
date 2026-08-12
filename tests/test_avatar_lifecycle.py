@@ -96,6 +96,7 @@ async def test_stop_during_start_waits_then_stops_authoritative_session_once():
         def __init__(self):
             super().__init__()
             self.started = asyncio.Event()
+            self.delay = True
             self.release = asyncio.Event()
 
         async def start_session(self, **kwargs):
@@ -148,3 +149,39 @@ async def test_token_failure_after_listener_install_cleans_up_and_allows_retry()
     assert all(not callbacks for callbacks in agent.callbacks.values())
     await session.start(agent, room=room)
     assert session.session_id == "server-id"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_start_cleans_up_and_allows_retry_without_hanging_stop():
+    class DelayedApiClient(FakeApiClient):
+        def __init__(self):
+            super().__init__()
+            self.started = asyncio.Event()
+            self.delay = True
+
+        async def start_session(self, **kwargs):
+            self.starts.append(kwargs)
+            self.started.set()
+            if self.delay:
+                await asyncio.Future()
+            from livekit.plugins.facemarket.api import SessionInfo
+
+            return SessionInfo(self.session_id)
+
+    api, room, agent = DelayedApiClient(), FakeRoom(), FakeAgentSession()
+    session = make_avatar(api)
+    start_task = asyncio.create_task(session.start(agent, room=room))
+    await api.started.wait()
+    start_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await start_task
+
+    assert not room.callbacks["data_received"]
+    assert not room.callbacks["disconnected"]
+    assert all(not callbacks for callbacks in agent.callbacks.values())
+    api.delay = False
+    await session.start(agent, room=room)
+    assert session.session_id == "server-id"
+    await asyncio.wait_for(session.stop(), timeout=0.1)
+    with pytest.raises(SessionStoppedError):
+        await session.start(agent, room=room)

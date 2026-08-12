@@ -113,7 +113,7 @@ class AvatarSession:
                 renderer_token=token.token,
                 session_id=session_id,
             )
-        except Exception:
+        except BaseException:
             async with self._lock:
                 self._complete_start(False)
                 if self._state is not _State.STOPPING:
