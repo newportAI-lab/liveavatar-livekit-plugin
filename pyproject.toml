@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "livekit-plugins-facemarket"
+version = "0.1.0"
+description = "Facemarket avatar integration for LiveKit Agents"
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+license = { file = "LICENSE" }
+dependencies = [
+    "livekit-agents>=1.6.6,<2",
+    "livekit-api>=1.1.1,<2",
+    "httpx>=0.25,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "build",
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["livekit/plugins/facemarket"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+
+[tool.black]
+line-length = 100
