@@ -49,7 +49,10 @@ class ApiClient:
             payload["sessionId"] = session_id
         response = await self._post("/v1/session/start", payload)
         result = self._response_body(response)
-        response_session_id = result.get("data", {}).get("sessionId")
+        response_data = result.get("data")
+        response_session_id = (
+            response_data.get("sessionId") if isinstance(response_data, dict) else None
+        )
         if not isinstance(response_session_id, str) or not response_session_id:
             raise SessionStartError(0, "missing data.sessionId")
         return SessionInfo(session_id=response_session_id)

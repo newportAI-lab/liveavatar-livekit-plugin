@@ -112,9 +112,23 @@ async def test_nonzero_response_code_raises_api_error(api_and_http):
 
 
 @pytest.mark.asyncio
-async def test_start_without_response_session_id_raises_start_error(api_and_http):
+@pytest.mark.parametrize(
+    ("include_data", "data"),
+    [
+        pytest.param(False, None, id="absent"),
+        pytest.param(True, None, id="null"),
+        pytest.param(True, {}, id="empty mapping"),
+        pytest.param(True, [], id="list"),
+    ],
+)
+async def test_start_without_response_session_id_raises_start_error(
+    api_and_http, include_data, data
+):
     api, http = api_and_http
-    http.post.return_value = response({"code": 0, "message": "success", "data": {}})
+    payload = {"code": 0, "message": "success"}
+    if include_data:
+        payload["data"] = data
+    http.post.return_value = response(payload)
 
     with pytest.raises(SessionStartError):
         await api.start_session(
