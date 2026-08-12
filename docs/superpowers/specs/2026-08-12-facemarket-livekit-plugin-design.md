@@ -75,6 +75,7 @@ from livekit.plugins import facemarket
 avatar = facemarket.AvatarSession(
     avatar_id="avatar_001",
     api_key="facemarket-api-key",
+    livekit_url="wss://developer-livekit.example.com",
     livekit_api_key="developer-livekit-api-key",
     livekit_api_secret="developer-livekit-api-secret",
 )
@@ -111,12 +112,13 @@ Constructor arguments take precedence over environment variables.
 
 - Facemarket API key: constructor `api_key`, otherwise `FACEMARKET_API_KEY`.
 - Facemarket base URL: constructor `base_url`, otherwise `FACEMARKET_BASE_URL`, otherwise `https://facemarket.ai/vih/dispatcher`.
+- LiveKit server URL: constructor `livekit_url`, otherwise `LIVEKIT_URL`.
 - LiveKit API key: constructor `livekit_api_key`, otherwise `LIVEKIT_API_KEY`.
 - LiveKit API secret: constructor `livekit_api_secret`, otherwise `LIVEKIT_API_SECRET`.
 - Sandbox: constructor boolean; when true the API client adds `X-Env-Sandbox: true`.
 - Renderer token TTL: configurable constructor duration with a default of 4 hours 30 minutes.
 
-The plugin validates required credentials and room properties before making a platform request. Secrets are backend-only and are never sent over a LiveKit Data Channel or exposed to frontend clients.
+The plugin treats only `None` as absent configuration, so explicit blank constructor values do not fall back to environment values. It validates non-blank required configuration, a positive renderer token TTL, `room.isconnected()`, the room name, and the local participant identity before making a platform request. Secrets are backend-only and are never sent over a LiveKit Data Channel or exposed to frontend clients.
 
 ## 6. Session API
 
@@ -187,7 +189,7 @@ A new renderer identity is generated for each new `AvatarSession` start attempt.
 `start(agent_session, room, session_id=None)` performs these operations:
 
 1. Validate instance state, credentials, and connected room properties.
-2. Read the room's local participant identity, room name, and server URL.
+2. Read the room's local participant identity and room name; use the configured LiveKit server URL.
 3. Generate a renderer token.
 4. Install room Data Channel listeners and AgentSession event listeners.
 5. Call `/v1/session/start`.
@@ -200,7 +202,7 @@ One `AvatarSession` instance represents one platform session lifecycle:
 
 - A compatible repeated `start()` call while active returns the existing successful result without another API request.
 - A repeated call with a different room, AgentSession, or requested reconnect ID raises `SessionAlreadyStartedError`.
-- `stop()` is idempotent while stopping or stopped; concurrent callers share the same stop operation.
+- `stop()` is idempotent while stopping or stopped; concurrent callers await the same shielded stop operation, so canceling one waiter does not cancel shared teardown.
 - After successful stop, the instance cannot start again and operations raise `SessionStoppedError`.
 - A new session or a reconnect after process recreation uses a new `AvatarSession` instance.
 - If the HTTP start step fails, installed listeners are removed, background tasks from that attempt are canceled, and the object returns to the unstarted state so the caller may retry.
@@ -225,10 +227,11 @@ The bridge isolates LiveKit Agents SDK event names and payload extraction from t
 
 ### 9.1 Request correlation
 
-- `user_started_speaking` creates a new UUID request ID.
+- User speech entering the `speaking` state creates a new UUID request ID.
 - Voice boundary, partial/final ASR, and the following agent response reuse that request ID.
-- A later `user_started_speaking` begins a new turn and replaces it.
+- A later user-speaking start transition begins a new turn and replaces it.
 - An agent utterance without a current user turn creates its own request ID at speech start and clears it at speech finish.
+- Every agent utterance also creates a separate response ID that remains frozen from response start through finish, including during barge-in. A completed user turn is consumed after its correlated response finishes.
 - Each partial transcript carries an increasing `seq` within the current user turn, starting at zero.
 
 ### 9.2 Prompt mode
@@ -278,7 +281,7 @@ Validation matches the reference platform RTC SDK:
 - The root must be an object with a string `event`.
 - `requestId` and `responseId`, when present, must be strings.
 - `seq` and `timestamp`, when present, must be integers but not booleans.
-- Known events require an object `data` value.
+- Known events require an object `data` value when explicitly supplied. Omitted `data` defaults to `{}` so payloadless events such as `scene.ready`, `system.idleTrigger`, and `session.closing` remain valid.
 - `session.state` requires string `data.state`.
 - `scene.resourceTransition` requires non-empty string `previousResourceId` and `nextResourceId`; optional `message` must be a string.
 - `error` requires string `data.message`.

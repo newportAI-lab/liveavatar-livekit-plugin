@@ -1,8 +1,11 @@
 import asyncio
+from datetime import timedelta
 
 import pytest
 from fakes import FakeAgentSession, FakeApiClient, FakeRoom
 
+from livekit import rtc
+from livekit.plugins.facemarket import avatar as avatar_module
 from livekit.plugins.facemarket.avatar import AvatarSession
 from livekit.plugins.facemarket.errors import (
     ConfigurationError,
@@ -21,6 +24,7 @@ def make_avatar(api):
     return AvatarSession(
         "avatar-1",
         api_key="facemarket",
+        livekit_url="wss://lk",
         livekit_api_key="lk",
         livekit_api_secret="secret",
         api_client=api,
@@ -45,17 +49,99 @@ async def test_start_uses_room_fields_and_is_compatible_idempotent():
         "renderer_token": "jwt",
         "session_id": None,
     }
+    assert room.isconnected_calls == 1
 
 
 @pytest.mark.asyncio
 async def test_invalid_room_and_incompatible_repeated_start_raise():
     avatar = make_avatar(FakeApiClient())
     with pytest.raises(ConfigurationError):
-        await avatar.start(FakeAgentSession(), room=FakeRoom(connection_state="disconnected"))
+        await avatar.start(FakeAgentSession(), room=FakeRoom(connected=False))
     agent, room = FakeAgentSession(), FakeRoom()
     await avatar.start(agent, room=room)
     with pytest.raises(SessionAlreadyStartedError):
         await avatar.start(FakeAgentSession(), room=room)
+
+
+@pytest.mark.asyncio
+async def test_real_room_contract_exposes_connectivity_but_not_server_url():
+    room = rtc.Room()
+    avatar = make_avatar(FakeApiClient())
+
+    assert room.isconnected() is False
+    assert not hasattr(room, "url")
+    with pytest.raises(ConfigurationError, match="connected"):
+        await avatar.start(FakeAgentSession(), room=room)
+
+
+@pytest.mark.asyncio
+async def test_livekit_url_falls_back_to_environment(monkeypatch):
+    monkeypatch.setenv("LIVEKIT_URL", "wss://environment-livekit")
+    api = FakeApiClient()
+    avatar = AvatarSession(
+        "avatar-1",
+        api_key="facemarket",
+        livekit_api_key="lk",
+        livekit_api_secret="secret",
+        api_client=api,
+        token_factory=token_factory,
+    )
+
+    await avatar.start(FakeAgentSession(), room=FakeRoom())
+
+    assert api.starts[0]["sfu_url"] == "wss://environment-livekit"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "environment"),
+    [
+        ("api_key", "FACEMARKET_API_KEY"),
+        ("base_url", "FACEMARKET_BASE_URL"),
+        ("livekit_url", "LIVEKIT_URL"),
+        ("livekit_api_key", "LIVEKIT_API_KEY"),
+        ("livekit_api_secret", "LIVEKIT_API_SECRET"),
+    ],
+)
+async def test_explicit_blank_configuration_does_not_fall_back_to_environment(
+    monkeypatch, field, environment
+):
+    monkeypatch.setenv(environment, "environment-value")
+    arguments = {
+        "api_key": "facemarket",
+        "base_url": "https://facemarket.example",
+        "livekit_url": "wss://lk",
+        "livekit_api_key": "lk",
+        "livekit_api_secret": "secret",
+    }
+    arguments[field] = "   "
+    avatar = AvatarSession(
+        "avatar-1",
+        **arguments,
+        api_client=FakeApiClient(),
+        token_factory=token_factory,
+    )
+
+    with pytest.raises(ConfigurationError, match=field):
+        await avatar.start(FakeAgentSession(), room=FakeRoom())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ttl", [timedelta(0), timedelta(seconds=-1)])
+async def test_renderer_token_ttl_must_be_positive(ttl):
+    avatar = AvatarSession(
+        "avatar-1",
+        api_key="facemarket",
+        livekit_url="wss://lk",
+        livekit_api_key="lk",
+        livekit_api_secret="secret",
+        renderer_token_ttl=ttl,
+        api_client=FakeApiClient(),
+        token_factory=token_factory,
+    )
+
+    with pytest.raises(ConfigurationError, match="renderer_token_ttl"):
+        await avatar.start(FakeAgentSession(), room=FakeRoom())
 
 
 @pytest.mark.asyncio
@@ -80,6 +166,102 @@ async def test_stop_is_concurrent_retryable_and_terminal():
     assert api.stops == ["server-id"]
     with pytest.raises(SessionStoppedError):
         await avatar.start(agent, room=room)
+
+
+@pytest.mark.asyncio
+async def test_cancelling_one_stop_waiter_does_not_cancel_shared_stop():
+    class DelayedStopApiClient(FakeApiClient):
+        def __init__(self):
+            super().__init__()
+            self.stop_started = asyncio.Event()
+            self.release_stop = asyncio.Event()
+
+        async def stop_session(self, session_id):
+            self.stops.append(session_id)
+            self.stop_started.set()
+            await self.release_stop.wait()
+
+    api = DelayedStopApiClient()
+    avatar = make_avatar(api)
+    await avatar.start(FakeAgentSession(), room=FakeRoom())
+    cancelled_waiter = asyncio.create_task(avatar.stop())
+    await api.stop_started.wait()
+    completing_waiter = asyncio.create_task(avatar.stop())
+
+    cancelled_waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled_waiter
+    api.release_stop.set()
+    await completing_waiter
+
+    assert api.stops == ["server-id"]
+
+
+@pytest.mark.asyncio
+async def test_stop_can_retry_after_internal_cancellation():
+    class CancelOnceApiClient(FakeApiClient):
+        async def stop_session(self, session_id):
+            self.stops.append(session_id)
+            if len(self.stops) == 1:
+                raise asyncio.CancelledError
+
+    api = CancelOnceApiClient()
+    avatar = make_avatar(api)
+    await avatar.start(FakeAgentSession(), room=FakeRoom())
+
+    with pytest.raises(asyncio.CancelledError):
+        await avatar.stop()
+    await avatar.stop()
+
+    assert api.stops == ["server-id", "server-id"]
+
+
+@pytest.mark.asyncio
+async def test_stop_can_retry_after_api_failure():
+    api = FakeApiClient()
+    avatar = make_avatar(api)
+    await avatar.start(FakeAgentSession(), room=FakeRoom())
+    api.fail_stop = True
+
+    with pytest.raises(RuntimeError, match="stop failed"):
+        await avatar.stop()
+    api.fail_stop = False
+    await avatar.stop()
+
+    assert api.stops == ["server-id", "server-id"]
+
+
+@pytest.mark.asyncio
+async def test_stop_retries_owned_client_teardown_without_repeating_remote_stop(monkeypatch):
+    class CloseFailsOnceApiClient(FakeApiClient):
+        def __init__(self):
+            super().__init__()
+            self.close_attempts = 0
+
+        async def aclose(self):
+            self.close_attempts += 1
+            if self.close_attempts == 1:
+                raise RuntimeError("close failed")
+            self.closed = True
+
+    api = CloseFailsOnceApiClient()
+    monkeypatch.setattr(avatar_module, "ApiClient", lambda *args: api)
+    avatar = AvatarSession(
+        "avatar-1",
+        api_key="facemarket",
+        livekit_url="wss://lk",
+        livekit_api_key="lk",
+        livekit_api_secret="secret",
+        token_factory=token_factory,
+    )
+    await avatar.start(FakeAgentSession(), room=FakeRoom())
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        await avatar.stop()
+    await avatar.stop()
+
+    assert api.stops == ["server-id"]
+    assert api.close_attempts == 2
 
 
 @pytest.mark.asyncio
@@ -136,6 +318,7 @@ async def test_token_failure_after_listener_install_cleans_up_and_allows_retry()
     session = AvatarSession(
         "avatar-1",
         api_key="facemarket",
+        livekit_url="wss://lk",
         livekit_api_key="lk",
         livekit_api_secret="secret",
         api_client=api,

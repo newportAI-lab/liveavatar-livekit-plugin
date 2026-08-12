@@ -16,6 +16,7 @@ async def entrypoint(ctx: agents.JobContext) -> None:
         avatar_id=os.environ["FACEMARKET_AVATAR_ID"],
         sandbox=os.getenv("FACEMARKET_SANDBOX", "").lower() == "true",
     )
+    preserve_session = os.getenv("FACEMARKET_PRESERVE_SESSION", "").lower() == "true"
 
     @avatar.on(facemarket.SESSION_READY)
     async def on_ready(event: facemarket.DataChannelEvent) -> None:
@@ -28,10 +29,9 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     # Use None for a new platform session; persist avatar.session_id for explicit reconnect.
     await avatar.start(session, room=ctx.room, session_id=previous_session_id)
     print(f"Facemarket session ID: {avatar.session_id}")
+    if not preserve_session:
+        ctx.add_shutdown_callback(avatar.stop)
     await session.start(agents.Agent(instructions="Be helpful."), room=ctx.room)
-
-    # Call this only when the remote Facemarket session should end.
-    await avatar.stop()
 
 
 if __name__ == "__main__":

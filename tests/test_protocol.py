@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from livekit.plugins.facemarket.errors import DataChannelProtocolError
@@ -57,6 +59,22 @@ def test_invalid_packet_raises_protocol_error(payload):
 )
 def test_known_events_accept_valid_object_data(event, data):
     assert decode_event(encode_event(DataChannelEvent(event=event, data=data))).event == event
+
+
+@pytest.mark.parametrize("event", [SCENE_READY, IDLE_TRIGGER, SESSION_CLOSING])
+def test_payloadless_known_events_default_omitted_data_to_empty_object(event):
+    decoded = decode_event(f'{{"event":"{event}"}}'.encode())
+
+    assert decoded.data == {}
+
+
+@pytest.mark.parametrize("event", [SCENE_READY, IDLE_TRIGGER, SESSION_CLOSING])
+@pytest.mark.parametrize("invalid_data", [None, [], "invalid", 1])
+def test_payloadless_known_events_reject_explicit_invalid_data(event, invalid_data):
+    payload = json.dumps({"event": event, "data": invalid_data}).encode()
+
+    with pytest.raises(DataChannelProtocolError):
+        decode_event(payload)
 
 
 @pytest.mark.parametrize(

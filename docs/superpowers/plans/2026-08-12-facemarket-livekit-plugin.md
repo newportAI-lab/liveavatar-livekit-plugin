@@ -310,14 +310,14 @@ git commit -m "feat: bridge livekit agent session events"
 - Modify: `tests/fakes.py`
 
 **Interfaces:**
-- Produces: `AvatarSession(avatar_id, api_key=None, base_url=None, livekit_api_key=None, livekit_api_secret=None, sandbox=False, renderer_token_ttl=timedelta(hours=4, minutes=30), *, api_client=None, token_factory=create_renderer_token)`.
+- Produces: `AvatarSession(avatar_id, api_key=None, base_url=None, livekit_url=None, livekit_api_key=None, livekit_api_secret=None, sandbox=False, renderer_token_ttl=timedelta(hours=4, minutes=30), *, api_client=None, token_factory=create_renderer_token)`.
 - Produces: `session_id: str | None`, `on(event)`, async `start(agent_session, *, room, session_id=None) -> None`, async `stop() -> None`, async `interrupt() -> None`, and async context methods.
 
 - [ ] **Step 1: Write failing lifecycle tests**
 
 Cover configuration precedence, connected-room validation, request fields, explicit reconnect, authoritative response ID, immediate return, compatible idempotent start, incompatible repeated start, failed-start listener cleanup/retry, new renderer identity on retry, concurrent stop, stop retry after API failure, terminal no-restart, and context-manager stop.
 
-Use a fake room exposing the real boundary names: `name`, `url`, `connection_state`, `local_participant.identity`, `on`, `off`, and async `local_participant.publish_data(payload, reliable=True)`.
+Use a fake room exposing the real boundary names: `name`, `isconnected()`, `local_participant.identity`, `on`, `off`, and async `local_participant.publish_data(payload, reliable=True)`. Supply the server URL through constructor `livekit_url` or `LIVEKIT_URL`, because real `rtc.Room` does not expose one.
 
 - [ ] **Step 2: Write failing inbound and publication tests**
 

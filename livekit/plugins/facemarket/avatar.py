@@ -3,7 +3,7 @@ import os
 from datetime import timedelta
 from enum import Enum
 from types import TracebackType
-from typing import Any, Self
+from typing import Any
 
 from .agent_bridge import AgentSessionBridge
 from .api import ApiClient
@@ -36,6 +36,7 @@ class AvatarSession:
         avatar_id: str,
         api_key: str | None = None,
         base_url: str | None = None,
+        livekit_url: str | None = None,
         livekit_api_key: str | None = None,
         livekit_api_secret: str | None = None,
         sandbox: bool = False,
@@ -45,12 +46,15 @@ class AvatarSession:
         token_factory: Any = create_renderer_token,
     ) -> None:
         self._avatar_id = avatar_id
-        self._api_key = api_key or os.getenv("FACEMARKET_API_KEY")
-        self._base_url = base_url or os.getenv(
-            "FACEMARKET_BASE_URL", "https://facemarket.ai/vih/dispatcher"
+        self._api_key = _configured_value(api_key, "FACEMARKET_API_KEY")
+        self._base_url = _configured_value(
+            base_url,
+            "FACEMARKET_BASE_URL",
+            "https://facemarket.ai/vih/dispatcher",
         )
-        self._livekit_api_key = livekit_api_key or os.getenv("LIVEKIT_API_KEY")
-        self._livekit_api_secret = livekit_api_secret or os.getenv("LIVEKIT_API_SECRET")
+        self._livekit_url = _configured_value(livekit_url, "LIVEKIT_URL")
+        self._livekit_api_key = _configured_value(livekit_api_key, "LIVEKIT_API_KEY")
+        self._livekit_api_secret = _configured_value(livekit_api_secret, "LIVEKIT_API_SECRET")
         self._sandbox = sandbox
         self._renderer_token_ttl = renderer_token_ttl
         self._api_client = api_client
@@ -71,6 +75,8 @@ class AvatarSession:
         self._stop_task: asyncio.Task[None] | None = None
         self._start_complete: asyncio.Future[bool] | None = None
         self._ready_seen = False
+        self._listeners_installed = False
+        self._remote_stop_succeeded = False
 
     @property
     def session_id(self) -> str | None:
@@ -109,7 +115,7 @@ class AvatarSession:
             result = await self._api_client.start_session(
                 avatar_id=self._avatar_id,
                 agent_identity=room.local_participant.identity,
-                sfu_url=room.url,
+                sfu_url=self._livekit_url,
                 renderer_token=token.token,
                 session_id=session_id,
             )
@@ -133,14 +139,20 @@ class AvatarSession:
                 self._state = _State.STOPPING
                 self._stop_task = asyncio.create_task(self._stop_impl())
             task = self._stop_task
-        await task
+        try:
+            await asyncio.shield(task)
+        except BaseException:
+            async with self._lock:
+                if task.done() and self._stop_task is task:
+                    self._stop_task = None
+            raise
 
-    async def interrupt(self) -> None:
+    async def interrupt(self, request_id: str | None = None) -> None:
         if self._state is _State.STOPPED:
             raise SessionStoppedError("AvatarSession has stopped")
-        self._publish(DataChannelEvent(event="response.audio.interrupt"))
+        self._publish(DataChannelEvent(event="control.interrupt", request_id=request_id))
 
-    async def __aenter__(self) -> Self:
+    async def __aenter__(self) -> "AvatarSession":  # noqa: PYI034 - Python 3.10 lacks Self.
         return self
 
     async def __aexit__(
@@ -152,26 +164,38 @@ class AvatarSession:
         await self.stop()
 
     def _validate(self, agent_session: Any, room: Any) -> None:
-        if not self._avatar_id or not self._api_key:
-            raise ConfigurationError("avatar_id and api_key are required")
-        if not self._livekit_api_key or not self._livekit_api_secret:
-            raise ConfigurationError("LiveKit credentials are required")
-        if room.connection_state != "connected" or not room.name or not room.url:
-            raise ConfigurationError("room must be connected with name and url")
-        if not room.local_participant.identity:
+        for name, value in (
+            ("avatar_id", self._avatar_id),
+            ("api_key", self._api_key),
+            ("base_url", self._base_url),
+            ("livekit_url", self._livekit_url),
+            ("livekit_api_key", self._livekit_api_key),
+            ("livekit_api_secret", self._livekit_api_secret),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ConfigurationError(f"{name} must not be blank")
+        if self._renderer_token_ttl.total_seconds() <= 0:
+            raise ConfigurationError("renderer_token_ttl must be positive")
+        if not room.isconnected() or not room.name:
+            raise ConfigurationError("room must be connected with a name")
+        if not room.local_participant.identity.strip():
             raise ConfigurationError("room local participant identity is required")
 
     def _install_listeners(self) -> None:
         for name, callback in self._room_callbacks.items():
             self._room.on(name, callback)
         self._bridge.install()
+        self._listeners_installed = True
 
     def _uninstall_listeners(self) -> None:
+        if not self._listeners_installed:
+            return
         if self._room is not None:
             for name, callback in self._room_callbacks.items():
                 self._room.off(name, callback)
         if self._bridge is not None:
             self._bridge.uninstall()
+        self._listeners_installed = False
 
     async def _cleanup_failed_start(self) -> None:
         self._uninstall_listeners()
@@ -188,19 +212,15 @@ class AvatarSession:
         start_complete = self._start_complete if self._state is _State.STOPPING else None
         if start_complete is not None:
             await start_complete
-        try:
-            if self._session_id is not None:
-                await self._api_client.stop_session(self._session_id)
-        except Exception:
-            async with self._lock:
-                self._stop_task = None
-            raise
+        if not self._remote_stop_succeeded and self._session_id is not None:
+            await self._api_client.stop_session(self._session_id)
+            self._remote_stop_succeeded = True
         self._uninstall_listeners()
+        if self._bridge is not None:
+            self._bridge.reset()
         await self._cancel_tasks()
         if self._owns_api_client and self._api_client is not None:
             await self._api_client.aclose()
-        if self._bridge is not None:
-            self._bridge.reset()
         async with self._lock:
             self._state = _State.STOPPED
 
@@ -241,21 +261,24 @@ class AvatarSession:
         if self._bridge is not None:
             self._bridge.reset()
 
-    def _publish(self, event: DataChannelEvent) -> None:
-        self._track(self._publish_impl(event))
+    def _publish(self, event: DataChannelEvent) -> asyncio.Task[Any]:
+        return self._track(self._publish_impl(event))
 
-    async def _publish_impl(self, event: DataChannelEvent) -> None:
+    async def _publish_impl(self, event: DataChannelEvent) -> bool:
         try:
             await self._room.local_participant.publish_data(encode_event(event), reliable=True)
         except Exception as error:  # noqa: BLE001 - publishing errors become local callbacks.
             await self._events.dispatch(
                 "error", DataChannelEvent(event="error", data={"error": str(error)})
             )
+            return False
+        return True
 
-    def _track(self, coroutine: Any) -> None:
+    def _track(self, coroutine: Any) -> asyncio.Task[Any]:
         task = asyncio.create_task(coroutine)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        return task
 
     async def _cancel_tasks(self) -> None:
         tasks = tuple(self._tasks)
@@ -263,3 +286,11 @@ class AvatarSession:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _configured_value(
+    value: str | None, environment: str, default: str | None = None
+) -> str | None:
+    if value is not None:
+        return value
+    return os.getenv(environment, default)

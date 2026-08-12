@@ -46,6 +46,9 @@ def test_user_turn_and_agent_response_share_request_id():
     ]
     request_ids = {event.request_id for event in published}
     assert len(request_ids) == 1
+    assert all(event.response_id is None for event in published[:4])
+    assert published[4].response_id == published[5].response_id
+    assert published[4].response_id is not None
     assert published[1].seq == 0
     assert published[2].seq is None
 
@@ -80,13 +83,73 @@ def test_proactive_speech_creates_and_clears_request_id():
     first_id = published[-1].request_id
     session.emit("agent_state_changed", SimpleNamespace(old_state="speaking", new_state="idle"))
     session.emit("agent_state_changed", SimpleNamespace(old_state="idle", new_state="speaking"))
+    second_id = published[-1].request_id
+    second_response_id = published[-1].response_id
+    session.emit("agent_state_changed", SimpleNamespace(old_state="speaking", new_state="idle"))
 
     assert [event.event for event in published] == [
         "response.audio.start",
         "response.audio.finish",
         "response.audio.start",
+        "response.audio.finish",
     ]
-    assert published[-1].request_id != first_id
+    assert second_id != first_id
+    assert published[0].response_id == published[1].response_id
+    assert second_response_id == published[3].response_id
+    assert second_response_id != published[0].response_id
+
+
+def test_response_correlation_is_frozen_during_barge_in():
+    session = FakeAgentSession()
+    published = []
+    bridge = AgentSessionBridge(session, published.append)
+    bridge.install()
+
+    session.emit("user_state_changed", SimpleNamespace(old_state="listening", new_state="speaking"))
+    first_turn_id = published[-1].request_id
+    session.emit("user_state_changed", SimpleNamespace(old_state="speaking", new_state="listening"))
+    session.emit(
+        "agent_state_changed", SimpleNamespace(old_state="listening", new_state="speaking")
+    )
+    first_response_id = published[-1].response_id
+    session.emit("user_state_changed", SimpleNamespace(old_state="listening", new_state="speaking"))
+    second_turn_id = published[-1].request_id
+    session.emit(
+        "agent_state_changed", SimpleNamespace(old_state="speaking", new_state="listening")
+    )
+    first_finish = published[-1]
+    session.emit(
+        "agent_state_changed", SimpleNamespace(old_state="listening", new_state="speaking")
+    )
+    second_start = published[-1]
+
+    assert first_turn_id != second_turn_id
+    assert first_finish.request_id == first_turn_id
+    assert first_finish.response_id == first_response_id
+    assert second_start.request_id == second_turn_id
+    assert second_start.response_id != first_response_id
+
+
+def test_completed_user_turn_is_consumed_after_response_finish():
+    session = FakeAgentSession()
+    published = []
+    bridge = AgentSessionBridge(session, published.append)
+    bridge.install()
+
+    session.emit("user_state_changed", SimpleNamespace(old_state="listening", new_state="speaking"))
+    user_turn_id = published[-1].request_id
+    session.emit("user_state_changed", SimpleNamespace(old_state="speaking", new_state="listening"))
+    session.emit(
+        "agent_state_changed", SimpleNamespace(old_state="listening", new_state="speaking")
+    )
+    session.emit(
+        "agent_state_changed", SimpleNamespace(old_state="speaking", new_state="listening")
+    )
+    session.emit(
+        "agent_state_changed", SimpleNamespace(old_state="listening", new_state="speaking")
+    )
+
+    assert published[-1].request_id != user_turn_id
 
 
 def test_prompt_is_single_use_and_reset_clears_it():

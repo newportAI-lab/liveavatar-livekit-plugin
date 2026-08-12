@@ -24,8 +24,14 @@ dev = [
     "ruff",
 ]
 
+[tool.hatch.build]
+exclude = [
+    "/.superpowers",
+    "/docs/superpowers",
+]
+
 [tool.hatch.build.targets.wheel]
-packages = ["livekit/plugins/facemarket"]
+packages = ["livekit"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

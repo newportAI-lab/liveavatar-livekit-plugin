@@ -60,6 +60,8 @@ def decode_event(
     if not isinstance(payload, dict) or not isinstance(payload.get("event"), str):
         raise DataChannelProtocolError("Data Channel event must be an object with a string event")
 
+    if payload["event"] in _KNOWN_EVENTS and "data" not in payload:
+        payload["data"] = {}
     _validate_common_fields(payload)
     _validate_known_event(payload)
     return DataChannelEvent(

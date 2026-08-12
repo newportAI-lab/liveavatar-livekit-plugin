@@ -27,12 +27,16 @@ class FakeLocalParticipant:
 
 
 class FakeRoom:
-    def __init__(self, name="room-1", url="wss://lk", connection_state="connected"):
+    def __init__(self, name="room-1", connected=True):
         self.name = name
-        self.url = url
-        self.connection_state = connection_state
+        self.connected = connected
+        self.isconnected_calls = 0
         self.local_participant = FakeLocalParticipant()
         self.callbacks = {}
+
+    def isconnected(self):
+        self.isconnected_calls += 1
+        return self.connected
 
     def on(self, event, callback):
         self.callbacks.setdefault(event, []).append(callback)
