@@ -88,3 +88,63 @@ async def test_context_manager_stops():
     async with make_avatar(api) as session:
         await session.start(FakeAgentSession(), room=FakeRoom())
     assert api.stops == ["server-id"]
+
+
+@pytest.mark.asyncio
+async def test_stop_during_start_waits_then_stops_authoritative_session_once():
+    class DelayedApiClient(FakeApiClient):
+        def __init__(self):
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def start_session(self, **kwargs):
+            self.starts.append(kwargs)
+            self.started.set()
+            await self.release.wait()
+            from livekit.plugins.facemarket.api import SessionInfo
+
+            return SessionInfo(self.session_id)
+
+    api, room, agent = DelayedApiClient(), FakeRoom(), FakeAgentSession()
+    session = make_avatar(api)
+    start_task = asyncio.create_task(session.start(agent, room=room))
+    await api.started.wait()
+    stop_task = asyncio.create_task(session.stop())
+    api.release.set()
+    await asyncio.gather(start_task, stop_task)
+
+    assert api.stops == ["server-id"]
+    assert session.session_id == "server-id"
+    with pytest.raises(SessionStoppedError):
+        await session.start(agent, room=room)
+
+
+@pytest.mark.asyncio
+async def test_token_failure_after_listener_install_cleans_up_and_allows_retry():
+    api, room, agent = FakeApiClient(), FakeRoom(), FakeAgentSession()
+    attempts = 0
+
+    def flaky_token_factory(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("token failed")
+        return token_factory(**kwargs)
+
+    session = AvatarSession(
+        "avatar-1",
+        api_key="facemarket",
+        livekit_api_key="lk",
+        livekit_api_secret="secret",
+        api_client=api,
+        token_factory=flaky_token_factory,
+    )
+    with pytest.raises(RuntimeError, match="token failed"):
+        await session.start(agent, room=room)
+
+    assert not room.callbacks["data_received"]
+    assert not room.callbacks["disconnected"]
+    assert all(not callbacks for callbacks in agent.callbacks.values())
+    await session.start(agent, room=room)
+    assert session.session_id == "server-id"

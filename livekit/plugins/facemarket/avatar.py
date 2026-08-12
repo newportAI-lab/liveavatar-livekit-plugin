@@ -69,6 +69,7 @@ class AvatarSession:
         }
         self._tasks: set[asyncio.Task[Any]] = set()
         self._stop_task: asyncio.Task[None] | None = None
+        self._start_complete: asyncio.Future[bool] | None = None
         self._ready_seen = False
 
     @property
@@ -90,12 +91,14 @@ class AvatarSession:
                 raise SessionAlreadyStartedError("AvatarSession is already starting or stopping")
             self._validate(agent_session, room)
             self._state = _State.STARTING
+            self._start_complete = asyncio.get_running_loop().create_future()
             self._room = room
             self._start_args = (agent_session, room, session_id)
             if self._api_client is None:
                 self._api_client = ApiClient(self._api_key, self._base_url, self._sandbox)
             self._bridge = AgentSessionBridge(agent_session, self._publish)
             self._install_listeners()
+        try:
             token = self._token_factory(
                 api_key=self._livekit_api_key,
                 api_secret=self._livekit_api_secret,
@@ -103,7 +106,6 @@ class AvatarSession:
                 agent_identity=room.local_participant.identity,
                 ttl=self._renderer_token_ttl,
             )
-        try:
             result = await self._api_client.start_session(
                 avatar_id=self._avatar_id,
                 agent_identity=room.local_participant.identity,
@@ -113,11 +115,15 @@ class AvatarSession:
             )
         except Exception:
             async with self._lock:
-                await self._cleanup_failed_start()
+                self._complete_start(False)
+                if self._state is not _State.STOPPING:
+                    await self._cleanup_failed_start()
             raise
         async with self._lock:
             self._session_id = result.session_id
-            self._state = _State.ACTIVE
+            if self._state is _State.STARTING:
+                self._state = _State.ACTIVE
+            self._complete_start(True)
 
     async def stop(self) -> None:
         async with self._lock:
@@ -179,6 +185,9 @@ class AvatarSession:
         self._state = _State.NEW
 
     async def _stop_impl(self) -> None:
+        start_complete = self._start_complete if self._state is _State.STOPPING else None
+        if start_complete is not None:
+            await start_complete
         try:
             if self._session_id is not None:
                 await self._api_client.stop_session(self._session_id)
@@ -194,6 +203,10 @@ class AvatarSession:
             self._bridge.reset()
         async with self._lock:
             self._state = _State.STOPPED
+
+    def _complete_start(self, succeeded: bool) -> None:
+        if self._start_complete is not None and not self._start_complete.done():
+            self._start_complete.set_result(succeeded)
 
     def _on_data_received(self, packet: Any) -> None:
         participant = getattr(packet, "participant", None)
