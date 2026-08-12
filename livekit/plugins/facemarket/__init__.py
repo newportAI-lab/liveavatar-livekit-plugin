@@ -1,3 +1,4 @@
+from .avatar import AvatarSession
 from .errors import (
     APIError,
     ConfigurationError,
@@ -34,6 +35,7 @@ __all__ = [
     "SESSION_READY",
     "SESSION_STATE",
     "APIError",
+    "AvatarSession",
     "ConfigurationError",
     "DataChannelEvent",
     "DataChannelProtocolError",
