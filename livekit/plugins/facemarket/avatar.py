@@ -14,7 +14,6 @@ from .protocol import (
     IDLE_TRIGGER,
     PROTOCOL_ERROR,
     SCENE_READY,
-    SESSION_READY,
     DataChannelEvent,
     decode_event,
     encode_event,
@@ -74,7 +73,6 @@ class AvatarSession:
         self._tasks: set[asyncio.Task[Any]] = set()
         self._stop_task: asyncio.Task[None] | None = None
         self._start_complete: asyncio.Future[bool] | None = None
-        self._ready_seen = False
         self._listeners_installed = False
         self._remote_stop_succeeded = False
 
@@ -239,15 +237,12 @@ class AvatarSession:
         except Exception as error:  # noqa: BLE001 - malformed external RTC packets are isolated.
             self._track(self._events.dispatch(PROTOCOL_ERROR, error))
             return
-        if event.event == SCENE_READY:
-            if not self._ready_seen:
-                self._ready_seen = True
-                self._track(self._events.dispatch(SESSION_READY, event))
-        elif event.event == IDLE_TRIGGER:
+        if event.event == IDLE_TRIGGER:
             if self._bridge is not None:
                 self._bridge.arm_prompt()
             self._track(self._events.dispatch(event.event, event))
         elif event.event in {
+            SCENE_READY,
             "scene.resourceTransition",
             "session.state",
             "session.closing",

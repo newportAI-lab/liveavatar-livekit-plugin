@@ -96,7 +96,7 @@ git commit -m "build: scaffold facemarket plugin package"
 
 **Interfaces:**
 - Produces: frozen `DataChannelEvent(event, data, request_id, response_id, seq, timestamp, participant_identity, topic)`; `decode_event(data: bytes, *, participant_identity: str | None = None, topic: str | None = None) -> DataChannelEvent`; `encode_event(event: DataChannelEvent) -> bytes`.
-- Produces constants: `SCENE_READY`, `SCENE_RESOURCE_TRANSITION`, `SESSION_STATE`, `SESSION_CLOSING`, `IDLE_TRIGGER`, `ERROR`, `CUSTOM_EVENT`, `PROTOCOL_ERROR`, `SESSION_READY`.
+- Produces constants: `SCENE_READY`, `SCENE_RESOURCE_TRANSITION`, `SESSION_STATE`, `SESSION_CLOSING`, `IDLE_TRIGGER`, `ERROR`, `CUSTOM_EVENT`, `PROTOCOL_ERROR`.
 
 - [ ] **Step 1: Write failing encode/decode and validation tests**
 
@@ -321,7 +321,7 @@ Use a fake room exposing the real boundary names: `name`, `isconnected()`, `loca
 
 - [ ] **Step 2: Write failing inbound and publication tests**
 
-Feed fake `rtc.DataPacket`-shaped objects to the installed `data_received` callback. Assert known events, unknown-to-`custom_event`, protocol errors, full metadata, `scene.ready` one-shot readiness, idle prompt arming, reliable publication, `interrupt()` envelope, publish-failure local error, callback isolation, task cancellation on failed start/stop, and prompt reset on room `disconnected`.
+Feed fake `rtc.DataPacket`-shaped objects to the installed `data_received` callback. Assert known events, unknown-to-`custom_event`, protocol errors, full metadata, repeated `scene.ready` delivery under its own event name, idle prompt arming, reliable publication, `interrupt()` envelope, publish-failure local error, callback isolation, task cancellation on failed start/stop, and prompt reset on room `disconnected`.
 
 - [ ] **Step 3: Verify red**
 
@@ -334,7 +334,7 @@ Use explicit internal states `NEW`, `STARTING`, `ACTIVE`, `STOPPING`, `STOPPED`.
 
 - [ ] **Step 5: Implement room and task handling**
 
-Install `data_received` and `disconnected` callbacks before the API call and remove them during failed-start cleanup or terminal stop. Convert packets with `decode_event`; map `scene.ready` to one-shot `session_ready`, known events to their names, unknown events to `custom_event`, and invalid packets to `protocol_error`. Track every `publish_data` task, consume exceptions, and dispatch a local error event without recursive re-publication.
+Install `data_received` and `disconnected` callbacks before the API call and remove them during failed-start cleanup or terminal stop. Convert packets with `decode_event`; dispatch `scene.ready` and other known events under their own names, unknown events to `custom_event`, and invalid packets to `protocol_error`. Track every `publish_data` task, consume exceptions, and dispatch a local error event without recursive re-publication.
 
 - [ ] **Step 6: Verify green and full integration path**
 

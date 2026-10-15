@@ -14,6 +14,7 @@ def test_public_package_identity():
     assert error.code == 1001
     assert error.message == "avatar not found"
     assert "1001" in str(error)
+    assert not hasattr(facemarket, "SESSION_READY")
 
 
 def test_import_does_not_require_typing_self_added_in_python_311():

@@ -12,7 +12,6 @@ IDLE_TRIGGER = "system.idleTrigger"
 ERROR = "error"
 CUSTOM_EVENT = "custom_event"
 PROTOCOL_ERROR = "protocol_error"
-SESSION_READY = "session_ready"
 
 _KNOWN_EVENTS = {
     SCENE_READY,

@@ -36,11 +36,12 @@ Call `await avatar.stop()` only to explicitly end the remote platform session. A
 
 Use `@avatar.on(name)` for these callbacks:
 
-- `session_ready` (one-shot `scene.ready`)
-- `scene.resourceTransition`, `session.state`, `session.closing`, `system.idleTrigger`
+- `scene.ready`, `scene.resourceTransition`, `session.state`, `session.closing`, `system.idleTrigger`
 - `error`, `custom_event`, and `protocol_error`
 
 Callbacks receive `DataChannelEvent`, which preserves `event`, `data`, `request_id`, `response_id`, `seq`, `timestamp`, sender `participant_identity`, and `topic`. `protocol_error` receives `DataChannelProtocolError` for malformed packets. `AvatarSession` automatically publishes reliable voice/ASR/response bridge events, assigns a stable response ID per agent utterance, and publishes `control.interrupt` from `await avatar.interrupt(request_id=None)`. Its HTTP client, token factory, and lifecycle coordination remain backend-only boundaries.
+
+`scene.ready` is forwarded only as the platform protocol event `SCENE_READY`; it does not imply or trigger a separate avatar-session readiness state.
 
 ## Checks
 

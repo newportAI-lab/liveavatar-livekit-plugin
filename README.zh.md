@@ -36,11 +36,12 @@ export LIVEKIT_API_SECRET=...
 
 使用 `@avatar.on(name)` 注册以下回调：
 
-- `session_ready`（一次性的 `scene.ready`）
-- `scene.resourceTransition`、`session.state`、`session.closing`、`system.idleTrigger`
+- `scene.ready`、`scene.resourceTransition`、`session.state`、`session.closing`、`system.idleTrigger`
 - `error`、`custom_event` 和 `protocol_error`
 
 回调会收到 `DataChannelEvent`，其中保留 `event`、`data`、`request_id`、`response_id`、`seq`、`timestamp`、发送者 `participant_identity` 和 `topic`。格式错误的数据包会通过 `protocol_error` 提供 `DataChannelProtocolError`。`AvatarSession` 自动发布可靠的语音、ASR 和响应桥接事件，为每个智能体话语分配稳定的响应 ID，并通过 `await avatar.interrupt(request_id=None)` 发布 `control.interrupt`。HTTP 客户端、token 工厂和生命周期协调均保持在后端边界内。
+
+`scene.ready` 只会作为平台协议事件 `SCENE_READY` 原样转发；它不代表、也不会触发额外的数字人会话就绪状态。
 
 ## 检查命令
 

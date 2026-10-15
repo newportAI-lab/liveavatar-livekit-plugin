@@ -11,6 +11,8 @@ def test_example_compiles():
     compile(source, "examples/basic_agent.py", "exec")
     assert "from livekit.plugins import facemarket" in source
     assert "session_id=previous_session_id" in source
+    assert "facemarket.SCENE_READY" in source
+    assert "facemarket.SESSION_READY" not in source
 
 
 class FakeContext:

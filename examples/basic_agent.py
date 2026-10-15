@@ -18,9 +18,9 @@ async def entrypoint(ctx: agents.JobContext) -> None:
     )
     preserve_session = os.getenv("FACEMARKET_PRESERVE_SESSION", "").lower() == "true"
 
-    @avatar.on(facemarket.SESSION_READY)
-    async def on_ready(event: facemarket.DataChannelEvent) -> None:
-        print(f"Renderer ready: {event.participant_identity}")
+    @avatar.on(facemarket.SCENE_READY)
+    async def on_scene_ready(event: facemarket.DataChannelEvent) -> None:
+        print(f"Scene ready event from: {event.participant_identity}")
 
     @avatar.on(facemarket.ERROR)
     async def on_error(event: facemarket.DataChannelEvent) -> None:

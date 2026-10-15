@@ -99,8 +99,8 @@ The plugin never silently restores a session across instances. The caller owns p
 Callbacks use decorator registration:
 
 ```python
-@avatar.on("session_ready")
-async def on_ready(event: facemarket.DataChannelEvent) -> None:
+@avatar.on("scene.ready")
+async def on_scene_ready(event: facemarket.DataChannelEvent) -> None:
     ...
 ```
 
@@ -265,7 +265,7 @@ Supported events:
 
 | Protocol event | Plugin callback |
 | --- | --- |
-| `scene.ready` | `session_ready` |
+| `scene.ready` | `scene.ready` |
 | `scene.resourceTransition` | `scene.resourceTransition` |
 | `session.state` | `session.state` |
 | `session.closing` | `session.closing` |
@@ -274,7 +274,7 @@ Supported events:
 | Unknown valid event | `custom_event` |
 | Invalid packet or known-event payload | `protocol_error` |
 
-The first valid `scene.ready` triggers `session_ready`. Later duplicates are ignored for readiness purposes.
+`scene.ready` is dispatched as its own protocol event. It has no relationship to a separate avatar-session readiness state, and repeated valid events are not deduplicated.
 
 Validation matches the reference platform RTC SDK:
 
@@ -319,7 +319,7 @@ Required coverage:
 - All six automatic AgentSession event mappings.
 - Shared request ID within a user turn, partial transcript sequence values, and independent proactive utterance IDs.
 - Idle prompt arming, one-utterance consumption, and every reset path.
-- All known inbound events, `scene.ready` deduplication, unknown valid events, and malformed protocol cases.
+- All known inbound events, repeated `scene.ready` delivery, unknown valid events, and malformed protocol cases.
 - Data Channel publication failure reporting and callback exception isolation.
 - The minimal example imports successfully in a smoke test.
 
@@ -347,7 +347,7 @@ The MVP is ready when:
 1. The package builds as `livekit-plugins-facemarket` and imports as `livekit.plugins.facemarket`.
 2. A caller can start a new session or explicitly reconnect using a persisted session ID.
 3. The generated renderer token lets an agent-kind renderer join the exact developer room and publish on behalf of the local agent.
-4. `start()` returns on platform acceptance and `scene.ready` independently triggers `session_ready` once.
+4. `start()` returns on platform acceptance; `scene.ready` remains an independent protocol event and is never translated into session readiness.
 5. AgentSession conversation events are automatically and correctly correlated over reliable Data Channel messages.
 6. Inbound protocol messages are validated and dispatched consistently with the reference Facemarket RTC SDK.
 7. Only explicit stop terminates the remote session.

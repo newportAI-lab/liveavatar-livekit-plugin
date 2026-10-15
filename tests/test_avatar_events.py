@@ -9,11 +9,11 @@ from livekit.plugins.facemarket.protocol import decode_event
 
 
 @pytest.mark.asyncio
-async def test_inbound_events_metadata_ready_once_and_idle_prompt():
+async def test_scene_ready_is_dispatched_as_its_own_protocol_event():
     room, agent = FakeRoom(), FakeAgentSession()
     avatar = make_avatar(FakeApiClient())
     received = []
-    avatar.on("session_ready")(received.append)
+    avatar.on("scene.ready")(received.append)
     avatar.on("custom_event")(received.append)
     await avatar.start(agent, room=room)
     packet = SimpleNamespace(
@@ -39,7 +39,11 @@ async def test_inbound_events_metadata_ready_once_and_idle_prompt():
     )
     agent.emit("agent_state_changed", SimpleNamespace(old_state="idle", new_state="speaking"))
     await asyncio.sleep(0)
-    assert [event.event for event in received] == ["scene.ready", "unknown"]
+    assert [event.event for event in received] == [
+        "scene.ready",
+        "scene.ready",
+        "unknown",
+    ]
     assert received[0].participant_identity == "renderer"
     assert (
         decode_event(room.local_participant.published[-1][0]).event == "response.audio.promptStart"
