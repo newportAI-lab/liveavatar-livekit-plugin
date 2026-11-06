@@ -5,6 +5,8 @@ from enum import Enum
 from types import TracebackType
 from typing import Any
 
+from livekit import rtc
+
 from .agent_bridge import AgentSessionBridge
 from .api import ApiClient
 from .errors import ConfigurationError, SessionAlreadyStartedError, SessionStoppedError
@@ -69,12 +71,16 @@ class AvatarSession:
         self._room_callbacks = {
             "data_received": self._on_data_received,
             "disconnected": self._on_disconnected,
+            "track_published": self._on_track_published,
         }
         self._tasks: set[asyncio.Task[Any]] = set()
         self._stop_task: asyncio.Task[None] | None = None
         self._start_complete: asyncio.Future[bool] | None = None
         self._listeners_installed = False
         self._remote_stop_succeeded = False
+        self._renderer_identity: str | None = None
+        self._renderer_video_published = False
+        self._scene_ready_published = False
 
     @property
     def session_id(self) -> str | None:
@@ -110,6 +116,7 @@ class AvatarSession:
                 agent_identity=room.local_participant.identity,
                 ttl=self._renderer_token_ttl,
             )
+            self._renderer_identity = token.identity
             result = await self._api_client.start_session(
                 avatar_id=self._avatar_id,
                 agent_identity=room.local_participant.identity,
@@ -128,6 +135,8 @@ class AvatarSession:
             if self._state is _State.STARTING:
                 self._state = _State.ACTIVE
             self._complete_start(True)
+            self._detect_existing_renderer_video()
+            self._publish_scene_ready_if_ready()
 
     async def stop(self) -> None:
         async with self._lock:
@@ -204,6 +213,9 @@ class AvatarSession:
         self._bridge = None
         self._room = None
         self._start_args = None
+        self._renderer_identity = None
+        self._renderer_video_published = False
+        self._scene_ready_published = False
         self._state = _State.NEW
 
     async def _stop_impl(self) -> None:
@@ -255,6 +267,35 @@ class AvatarSession:
     def _on_disconnected(self) -> None:
         if self._bridge is not None:
             self._bridge.reset()
+
+    def _on_track_published(self, publication: Any, participant: Any) -> None:
+        if (
+            getattr(participant, "identity", None) == self._renderer_identity
+            and getattr(publication, "kind", None) == rtc.TrackKind.KIND_VIDEO
+        ):
+            self._renderer_video_published = True
+            self._publish_scene_ready_if_ready()
+
+    def _detect_existing_renderer_video(self) -> None:
+        participant = self._room.remote_participants.get(self._renderer_identity)
+        if participant is None:
+            return
+        publications = participant.track_publications
+        if hasattr(publications, "values"):
+            publications = publications.values()
+        self._renderer_video_published = any(
+            getattr(publication, "kind", None) == rtc.TrackKind.KIND_VIDEO
+            for publication in publications
+        )
+
+    def _publish_scene_ready_if_ready(self) -> None:
+        if (
+            self._state is _State.ACTIVE
+            and self._renderer_video_published
+            and not self._scene_ready_published
+        ):
+            self._scene_ready_published = True
+            self._publish(DataChannelEvent(event=SCENE_READY, data={}))
 
     def _publish(self, event: DataChannelEvent) -> asyncio.Task[Any]:
         return self._track(self._publish_impl(event))

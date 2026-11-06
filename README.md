@@ -41,7 +41,7 @@ Use `@avatar.on(name)` for these callbacks:
 
 Callbacks receive `DataChannelEvent`, which preserves `event`, `data`, `request_id`, `response_id`, `seq`, `timestamp`, sender `participant_identity`, and `topic`. `protocol_error` receives `DataChannelProtocolError` for malformed packets. `AvatarSession` automatically publishes reliable voice/ASR/response bridge events, assigns a stable response ID per agent utterance, and publishes `control.interrupt` from `await avatar.interrupt(request_id=None)`. Its HTTP client, token factory, and lifecycle coordination remain backend-only boundaries.
 
-`scene.ready` is forwarded only as the platform protocol event `SCENE_READY`; it does not imply or trigger a separate avatar-session readiness state.
+The plugin automatically publishes one reliable `scene.ready` after `/v1/session/start` succeeds and the renderer for that session first publishes a video track. Listeners are installed before the start request and existing room publications are checked afterward, so a track published during startup is not missed. An inbound `scene.ready` is still forwarded as the platform protocol event `SCENE_READY`; it does not imply or trigger a separate avatar-session readiness state.
 
 ## Checks
 

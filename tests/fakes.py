@@ -32,6 +32,7 @@ class FakeRoom:
         self.connected = connected
         self.isconnected_calls = 0
         self.local_participant = FakeLocalParticipant()
+        self.remote_participants = {}
         self.callbacks = {}
 
     def isconnected(self):
@@ -45,9 +46,9 @@ class FakeRoom:
     def off(self, event, callback):
         self.callbacks[event].remove(callback)
 
-    def emit(self, event, payload=None):
+    def emit(self, event, *args):
         for callback in tuple(self.callbacks.get(event, [])):
-            callback(payload) if payload is not None else callback()
+            callback(*args)
 
 
 class FakeApiClient:

@@ -274,7 +274,9 @@ Supported events:
 | Unknown valid event | `custom_event` |
 | Invalid packet or known-event payload | `protocol_error` |
 
-`scene.ready` is dispatched as its own protocol event. It has no relationship to a separate avatar-session readiness state, and repeated valid events are not deduplicated.
+After `/v1/session/start` succeeds, the plugin reliably publishes one outbound `scene.ready` when the renderer identity created for that start first publishes a video track. Room listeners are installed before the HTTP request, and existing renderer publications are checked after it completes, so startup races are covered. Other participants and non-video renderer tracks do not satisfy the gate.
+
+An inbound `scene.ready` is dispatched as its own protocol event. It has no relationship to a separate avatar-session readiness state, and repeated valid inbound events are not deduplicated.
 
 Validation matches the reference platform RTC SDK:
 
@@ -320,6 +322,7 @@ Required coverage:
 - Shared request ID within a user turn, partial transcript sequence values, and independent proactive utterance IDs.
 - Idle prompt arming, one-utterance consumption, and every reset path.
 - All known inbound events, repeated `scene.ready` delivery, unknown valid events, and malformed protocol cases.
+- Automatic outbound `scene.ready` after the matching renderer publishes video, including existing-track and startup-race cases, identity/kind filtering, and single publication.
 - Data Channel publication failure reporting and callback exception isolation.
 - The minimal example imports successfully in a smoke test.
 
@@ -347,7 +350,7 @@ The MVP is ready when:
 1. The package builds as `livekit-plugins-facemarket` and imports as `livekit.plugins.facemarket`.
 2. A caller can start a new session or explicitly reconnect using a persisted session ID.
 3. The generated renderer token lets an agent-kind renderer join the exact developer room and publish on behalf of the local agent.
-4. `start()` returns on platform acceptance; `scene.ready` remains an independent protocol event and is never translated into session readiness.
+4. `start()` returns on platform acceptance; the plugin automatically publishes one `scene.ready` after the matching renderer publishes video, while inbound `scene.ready` remains an independent protocol event and is never translated into session readiness.
 5. AgentSession conversation events are automatically and correctly correlated over reliable Data Channel messages.
 6. Inbound protocol messages are validated and dispatched consistently with the reference Facemarket RTC SDK.
 7. Only explicit stop terminates the remote session.

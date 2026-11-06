@@ -14,6 +14,7 @@
 - Support Python `>=3.10,<3.15`, matching LiveKit Agents 1.6.6 metadata.
 - Facemarket defaults to `https://facemarket.ai/vih/dispatcher`; secrets remain backend-only.
 - `start()` completes at successful `/v1/session/start`; it never waits for renderer media or `scene.ready`.
+- After start succeeds, reliably publish one `scene.ready` when that start's renderer identity first publishes a video track; register listeners before the request and check existing publications afterward.
 - Only explicit `stop()` calls `/v1/session/stop`; RTC disconnects never terminate the platform session.
 - A caller reconnects only by explicitly passing `session_id` to a new `AvatarSession`.
 - Use reliable Data Channel publication without assigning protocol meaning to topic.

@@ -41,7 +41,7 @@ export LIVEKIT_API_SECRET=...
 
 回调会收到 `DataChannelEvent`，其中保留 `event`、`data`、`request_id`、`response_id`、`seq`、`timestamp`、发送者 `participant_identity` 和 `topic`。格式错误的数据包会通过 `protocol_error` 提供 `DataChannelProtocolError`。`AvatarSession` 自动发布可靠的语音、ASR 和响应桥接事件，为每个智能体话语分配稳定的响应 ID，并通过 `await avatar.interrupt(request_id=None)` 发布 `control.interrupt`。HTTP 客户端、token 工厂和生命周期协调均保持在后端边界内。
 
-`scene.ready` 只会作为平台协议事件 `SCENE_READY` 原样转发；它不代表、也不会触发额外的数字人会话就绪状态。
+Plugin 会在 `/v1/session/start` 成功且本次会话的 Renderer 首次发布视频轨道后，自动可靠发送一次 `scene.ready`。监听器会在启动请求前安装，并在请求完成后检查房间内已有轨道，因此不会遗漏启动过程中的轨道发布事件。收到的 `scene.ready` 仍会作为平台协议事件 `SCENE_READY` 原样转发；它不代表、也不会触发额外的数字人会话就绪状态。
 
 ## 检查命令
 
